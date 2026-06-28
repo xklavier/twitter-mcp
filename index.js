@@ -78,6 +78,14 @@ app.get("/sse", async (req, res) => {
       return result;
     };
 
+    // Monkey-patch write to flush headers after every write to ensure data is sent immediately
+    const originalWrite = res.write;
+    res.write = function(...args) {
+      const result = originalWrite.apply(this, args);
+      res.flushHeaders?.();
+      return result;
+    };
+
     const transport = new SSEServerTransport("/messages", res);
     const sessionId = transport.sessionId;
     activeTransports.set(sessionId, transport);

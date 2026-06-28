@@ -8,7 +8,7 @@ import { z } from "zod";
 const app = express();
 
 app.use(cors({ origin: '*' }));
-app.use(express.json());
+app.use(express.json()); // 1. Poke'un özellikle belirttiği JSON middleware'i
 
 // X (Twitter) API Bağlantısı
 const twitterClient = new TwitterApi({
@@ -53,12 +53,11 @@ server.tool(
   }
 );
 
-// Poke'un istediği global aktif transport değişkeni
-let activeTransport = null;
+// 2. Poke'un istediği profesyonel Hafıza Havuzu (Map)
+const activeTransports = new Map();
 
-// GET /sse - Bağlantıyı canlı tutan ve akışı başlatan kapı
+// GET /sse - Akışı başlatan ve sessionId üreten kapı
 app.get("/sse", async (req, res) => {
-  // 1. Render/Nginx buffer'lamasın diye header'ları zorla gönderiyoruz
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -66,32 +65,37 @@ app.get("/sse", async (req, res) => {
     "X-Accel-Buffering": "no"
   });
   
-  res.flushHeaders(); // Bağlantıyı anında fırlatıp başlatıyoruz
+  res.flushHeaders();
 
-  console.log("Poke bağlandı. Transport başlatılıyor...");
+  console.log("Poke bağlandı. Transport oluşturuluyor...");
 
-  // 2. Transport'u oluşturup global değişkene eşitliyoruz ve MCP'ye bağlıyoruz
+  // Transport oluşturulur oluşturulmaz arkada otomatik benzersiz bir sessionId kazanır
   const transport = new SSEServerTransport("/messages", res);
-  activeTransport = transport; 
+  
+  // Her bağlantıyı kendi benzersiz sessionId'si ile Map'e kaydediyoruz
+  activeTransports.set(transport.sessionId, transport);
+  console.log(`Yeni session havaza eklendi: ${transport.sessionId}`);
   
   await server.connect(transport);
 
-  // 3. Bağlantı koparsa güvenli temizlik yapalım
+  // Bağlantı koptuğunda sadece bu kapanan spesifik session'ı temizliyoruz
   req.on("close", () => {
-    console.log("Bağlantı kapandı, activeTransport temizleniyor.");
+    console.log(`Session kapatılıyor: ${transport.sessionId}`);
     transport.close();
-    if (activeTransport === transport) {
-      activeTransport = null;
-    }
+    activeTransports.delete(transport.sessionId);
   });
 });
 
-// POST /messages - Poke'un komutları (Tool Call) göndereceği global kapı
+// POST /messages - Gelen komutları query'deki sessionId ile havuzdan eşleştiren kapı
 app.post("/messages", async (req, res) => {
-  if (activeTransport) {
-    await activeTransport.handlePostMessage(req, res);
+  // İstemciden (Poke AI) gelen URL query parametresinden sessionId'yi yakalıyoruz
+  const { sessionId } = req.query;
+  const transport = activeTransports.get(sessionId);
+
+  if (transport) {
+    await transport.handlePostMessage(req, res);
   } else {
-    res.status(400).send("Aktif SSE baglantisi bulunamadi kanka");
+    res.status(400).send("Aktif SSE baglantisi bulunamadi kanka. SessionId: " + sessionId);
   }
 });
 

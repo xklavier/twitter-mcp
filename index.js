@@ -17,51 +17,58 @@ const twitterClient = new TwitterApi({
   accessSecret: process.env.TWITTER_ACCESS_SECRET || "",
 });
 
-const server = new McpServer({
-  name: "twitter-mcp",
-  version: "1.0.0",
-});
+/**
+ * Creates and configures a fresh McpServer instance with all tools registered.
+ */
+function createMcpServer() {
+  const server = new McpServer({
+    name: "twitter-mcp",
+    version: "1.0.0",
+  });
 
-server.tool(
-  "post_tweet",
-  "Post a new tweet or reply to X (Twitter)",
-  {
-    text: z.string().min(1).describe("The tweet text"),
-    replyToId: z.string().optional().describe("Optional ID of tweet to reply to"),
-  },
-  async ({ text, replyToId }) => {
-    try {
-      let result;
+  server.tool(
+    "post_tweet",
+    "Post a new tweet or reply to X (Twitter)",
+    {
+      text: z.string().min(1).describe("The tweet text"),
+      replyToId: z.string().optional().describe("Optional ID of tweet to reply to"),
+    },
+    async ({ text, replyToId }) => {
+      try {
+        let result;
 
-      if (replyToId) {
-        result = await twitterClient.v2.tweet(text, {
-          reply: { in_reply_to_tweet_id: replyToId },
-        });
-      } else {
-        result = await twitterClient.v2.tweet(text);
+        if (replyToId) {
+          result = await twitterClient.v2.tweet(text, {
+            reply: { in_reply_to_tweet_id: replyToId },
+          });
+        } else {
+          result = await twitterClient.v2.tweet(text);
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Tweet başarıyla gönderildi. ID: ${result.data.id}`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Twitter API hatası: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          isError: true,
+        };
       }
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Tweet başarıyla gönderildi. ID: ${result.data.id}`,
-          },
-        ],
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Twitter API hatası: ${error instanceof Error ? error.message : String(error)}`,
-          },
-        ],
-        isError: true,
-      };
     }
-  }
-);
+  );
+
+  return server;
+}
 
 const activeTransports = new Map();
 
@@ -100,6 +107,8 @@ app.get("/sse", async (req, res) => {
       } catch (_) {}
     });
 
+    // Her bağlantı için yeni bir server instance oluşturuyoruz
+    const server = createMcpServer();
     await server.connect(transport);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

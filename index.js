@@ -53,9 +53,10 @@ server.tool(
   }
 );
 
-let transport;
+// Poke'un istediği global aktif transport değişkeni
+let activeTransport = null;
 
-// Poke ekibinin buffer'ı kıran ve akışı anında başlatan /sse handler'ı
+// GET /sse - Bağlantıyı canlı tutan ve akışı başlatan kapı
 app.get("/sse", async (req, res) => {
   // 1. Render/Nginx buffer'lamasın diye header'ları zorla gönderiyoruz
   res.writeHead(200, {
@@ -69,23 +70,28 @@ app.get("/sse", async (req, res) => {
 
   console.log("Poke bağlandı. Transport başlatılıyor...");
 
-  // 2. Transport'u Poke'un istediği gibi "/messages" yoluyla başlatıp mcp'ye bağlıyoruz
-  transport = new SSEServerTransport("/messages", res);
+  // 2. Transport'u oluşturup global değişkene eşitliyoruz ve MCP'ye bağlıyoruz
+  const transport = new SSEServerTransport("/messages", res);
+  activeTransport = transport; 
+  
   await server.connect(transport);
 
-  // 3. Bağlantı koparsa temizlik yapalım
+  // 3. Bağlantı koparsa güvenli temizlik yapalım
   req.on("close", () => {
-    console.log("Bağlantı kapandı, transport temizleniyor.");
-    if (transport) transport.close();
+    console.log("Bağlantı kapandı, activeTransport temizleniyor.");
+    transport.close();
+    if (activeTransport === transport) {
+      activeTransport = null;
+    }
   });
 });
 
-// 4. Poke ekibinin yeni belirttiği "/messages" POST kapısı
+// POST /messages - Poke'un komutları (Tool Call) göndereceği global kapı
 app.post("/messages", async (req, res) => {
-  if (transport) {
-    await transport.handlePostMessage(req, res);
+  if (activeTransport) {
+    await activeTransport.handlePostMessage(req, res);
   } else {
-    res.status(400).send("No active session");
+    res.status(400).send("Aktif SSE baglantisi bulunamadi kanka");
   }
 });
 

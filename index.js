@@ -67,6 +67,12 @@ const activeTransports = new Map();
 
 app.get("/sse", async (req, res) => {
   try {
+    // Render proxy buffering engellemek için
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
     const transport = new SSEServerTransport("/messages", res);
     const sessionId = transport.sessionId;
 

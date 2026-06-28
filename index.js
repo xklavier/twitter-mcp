@@ -45,7 +45,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `Tweet başarıyla gönderildi. ID: \${result.data.id}`,
+            text: `Tweet başarıyla gönderildi. ID: ${result.data.id}`,
           },
         ],
       };
@@ -54,7 +54,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `Twitter API hatası: \${error instanceof Error ? error.message : String(error)}`,
+            text: `Twitter API hatası: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
         isError: true,
@@ -77,10 +77,10 @@ app.get("/sse", async (req, res) => {
     const sessionId = transport.sessionId;
 
     activeTransports.set(sessionId, transport);
-    console.log(`SSE bağlantısı açıldı. Session ID: \${sessionId}`);
+    console.log(`SSE bağlantısı açıldı. Session ID: ${sessionId}`);
 
     req.on("close", () => {
-      console.log(`Bağlantı kapandı, temizleniyor: \${sessionId}`);
+      console.log(`Bağlantı kapandı, temizleniyor: ${sessionId}`);
       activeTransports.delete(sessionId);
 
       try {
@@ -107,7 +107,7 @@ app.post("/messages", async (req, res) => {
   const transport = activeTransports.get(sessionId);
 
   if (!transport) {
-    return res.status(404).send(`Aktif transport bulunamadı. Session ID: \${sessionId}`);
+    return res.status(404).send(`Aktif transport bulunamadı. Session ID: ${sessionId}`);
   }
 
   try {
@@ -127,5 +127,5 @@ app.get("/", (_req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on \${PORT}`);
+  console.log(`Server running on ${PORT}`);
 });

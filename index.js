@@ -1,20 +1,14 @@
-import express from 'express';
-import cors from 'cors';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { TwitterApi } from 'twitter-api-v2';
-import z from 'zod';
+import express from "express";
+import cors from "cors";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { TwitterApi } from "twitter-api-v2";
 
 const app = express();
 
-// Render ve dış dünya bağlantıları için CORS izinleri
+// Güvenlik ve dış bağlantılar için CORS desteği ekleyelim
 app.use(cors({ origin: '*' }));
 app.use(express.json());
-
-// API Anahtarları Kontrolü (Eğer biri eksikse loglarda görebilmemiz için)
-if (!process.env.TWITTER_API_KEY || !process.env.TWITTER_ACCESS_TOKEN) {
-  console.error("KRİTİK HATA: Twitter API anahtarları çevre değişkenlerinde (Environment Variables) eksik!");
-}
 
 // X (Twitter) API Bağlantısı
 const twitterClient = new TwitterApi({
@@ -24,63 +18,67 @@ const twitterClient = new TwitterApi({
   accessSecret: process.env.TWITTER_ACCESS_SECRET || '',
 });
 
-// Resmi MCP Sunucu Tanımı
 const server = new McpServer({
   name: "twitter-mcp",
-  version: "1.0.0"
+  version: "1.0.0",
 });
 
-// Tweet Atma Aracı (Tool)
+// Poke AI ekibinin şablonuna göre güncellenmiş Twitter Tool yapısı
 server.tool(
   "post_tweet",
-  "X (Twitter) hesabından yeni bir tweet atar veya bir tweete cevap verir.",
-  { 
-    text: z.string().describe("Atılacak tweetin metni"),
-    replyToId: z.string().optional().describe("Eğer bir tweete cevap verilecekse, o tweetin ID'si (Opsiyonel)")
+  "Post a new tweet or reply to X (Twitter)",
+  {
+    text: { type: "string", description: "The tweet text" },
+    replyToId: { type: "string", description: "Optional ID of tweet to reply to" }
   },
   async ({ text, replyToId }) => {
     try {
       let result;
       if (replyToId) {
+        // Eğer bir tweete yanıt veriliyorsa
         result = await twitterClient.v2.tweet(text, {
           reply: { in_reply_to_tweet_id: replyToId }
         });
       } else {
+        // Normal yeni tweet
         result = await twitterClient.v2.tweet(text);
       }
-      return { content: [{ type: "text", text: `Başarılı! Tweet gönderildi. ID: ${result.data.id}` }] };
+      return {
+        content: [{ type: "text", text: `Tweet başarıyla gönderildi. ID: ${result.data.id}` }]
+      };
     } catch (error) {
-      return { content: [{ type: "text", text: `Twitter API Hatası: ${error.message}` }], isError: true };
+      return {
+        content: [{ type: "text", text: `Twitter API Hatası: ${error.message}` }],
+        isError: true
+      };
     }
   }
 );
 
-let transport = null;
+let transport;
 
-// 1. Canlı SSE Akış Kapısı
-app.get('/sse', async (req, res) => {
-  transport = new SSEServerTransport('/api/mcp', res);
+// Poke AI'ın tam olarak beklediği /sse endpoint'i
+app.get("/sse", async (req, res) => {
+  transport = new SSEServerTransport("/api/mcp", res);
   await server.connect(transport);
 });
 
-// 2. POST isteklerini karşılayan yol
-app.post('/api/mcp', async (req, res) => {
+// Araçların (tools) tetiklendiği POST kapısı
+app.post("/api/mcp", async (req, res) => {
   if (transport) {
     await transport.handlePostMessage(req, res);
   } else {
-    res.status(500).send('SSE baglantisi henüz kurulmadi.');
+    res.status(400).send("No active session");
   }
 });
 
-// Anasayfa kontrol mesajı
-app.get('/', (req, res) => {
-  res.send('Twitter MCP Server Render üzerinde 7/24 aktif!');
+// Anasayfayı boş bırakmayalım, sunucunun ayakta olduğunu bilelim
+app.get("/", (req, res) => {
+  res.send("Twitter MCP Server Render üzerinde canavar gibi çalışıyor!");
 });
 
-// RENDER İÇİN KRİTİK DEĞİŞİKLİK: Dinamik port tanımı
+// Render dinamik port ayarı
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Sunucu ${PORT} portunda başarıyla ayağa kalktı.`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("Server running");
 });
-
-export default app;

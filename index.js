@@ -69,16 +69,13 @@ app.get("/sse", async (req, res) => {
   try {
     // Render proxy buffering engellemek için
     res.setHeader("X-Accel-Buffering", "no");
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-
-    // Flush headers immediately for reliable chunk emission
-    res.flushHeaders?.();
 
     const transport = new SSEServerTransport("/messages", res);
-    const sessionId = transport.sessionId;
+    
+    // SDK headers yazdıktan sonra hemen flush et
+    res.flushHeaders?.();
 
+    const sessionId = transport.sessionId;
     activeTransports.set(sessionId, transport);
     console.log(`SSE bağlantısı açıldı. Session ID: ${sessionId}`);
 

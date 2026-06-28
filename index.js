@@ -70,11 +70,15 @@ app.get("/sse", async (req, res) => {
     // Render proxy buffering engellemek için
     res.setHeader("X-Accel-Buffering", "no");
 
-    const transport = new SSEServerTransport("/messages", res);
-    
-    // SDK headers yazdıktan sonra hemen flush et
-    res.flushHeaders?.();
+    // Monkey-patch writeHead to flush headers automatically when the SDK writes them
+    const originalWriteHead = res.writeHead;
+    res.writeHead = function(...args) {
+      const result = originalWriteHead.apply(this, args);
+      res.flushHeaders?.();
+      return result;
+    };
 
+    const transport = new SSEServerTransport("/messages", res);
     const sessionId = transport.sessionId;
     activeTransports.set(sessionId, transport);
     console.log(`SSE bağlantısı açıldı. Session ID: ${sessionId}`);

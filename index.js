@@ -165,11 +165,8 @@ const sseTransports = new Map();
 
 app.get("/sse", async (req, res) => {
   try {
-    res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders();
 
     const transport = new SSEServerTransport("/messages", res);
     const sessionId = transport.sessionId;

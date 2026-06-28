@@ -1,13 +1,21 @@
 import express from "express";
 import cors from "cors";
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { TwitterApi } from "twitter-api-v2";
 import { z } from "zod";
 
 const app = express();
 
-app.use(cors({ origin: "*" }));
+app.use(
+  cors({
+    origin: "*",
+    exposedHeaders: ["Mcp-Session-Id"],
+    allowedHeaders: ["Content-Type", "Mcp-Session-Id"],
+  })
+);
 app.use(express.json());
 
 const twitterClient = new TwitterApi({
@@ -70,76 +78,81 @@ function createMcpServer() {
   return server;
 }
 
-const activeTransports = new Map();
+// sessionId -> { server, transport }
+const transports = {};
 
-app.get("/sse", async (req, res) => {
+// Modern Streamable HTTP endpoint - Poke ve diğer güncel MCP istemcileri burayı kullanır
+app.post("/mcp", async (req, res) => {
   try {
-    // Render proxy buffering engellemek için
-    res.setHeader("X-Accel-Buffering", "no");
+    const sessionId = req.headers["mcp-session-id"];
 
-    // Monkey-patch writeHead to flush headers automatically when the SDK writes them
-    const originalWriteHead = res.writeHead;
-    res.writeHead = function(...args) {
-      const result = originalWriteHead.apply(this, args);
-      res.flushHeaders?.();
-      return result;
-    };
+    let entry = sessionId ? transports[sessionId] : undefined;
 
-    // Monkey-patch write to flush headers after every write to ensure data is sent immediately
-    const originalWrite = res.write;
-    res.write = function(...args) {
-      const result = originalWrite.apply(this, args);
-      res.flushHeaders?.();
-      return result;
-    };
+    if (!entry) {
+      if (!isInitializeRequest(req.body)) {
+        return res.status(400).json({
+          jsonrpc: "2.0",
+          error: { code: -32000, message: "Geçerli bir oturum bulunamadı (initialize bekleniyor)" },
+          id: null,
+        });
+      }
 
-    const transport = new SSEServerTransport("/messages", res);
-    const sessionId = transport.sessionId;
-    activeTransports.set(sessionId, transport);
-    console.log(`SSE bağlantısı açıldı. Session ID: ${sessionId}`);
+      const server = createMcpServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (id) => {
+          transports[id] = { server, transport };
+          console.log(`MCP oturumu başlatıldı: ${id}`);
+        },
+      });
 
-    req.on("close", () => {
-      console.log(`Bağlantı kapandı, temizleniyor: ${sessionId}`);
-      activeTransports.delete(sessionId);
+      res.on("close", () => {
+        if (transport.sessionId) {
+          delete transports[transport.sessionId];
+          console.log(`MCP oturumu kapandı: ${transport.sessionId}`);
+        }
+      });
 
-      try {
-        transport.close?.();
-      } catch (_) {}
-    });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+      return;
+    }
 
-    // Her bağlantı için yeni bir server instance oluşturuyoruz
-    const server = createMcpServer();
-    await server.connect(transport);
+    await entry.transport.handleRequest(req, res, req.body);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("SSE başlatma hatası:", errorMessage);
+    console.error("MCP POST hatası:", error);
     if (!res.headersSent) {
-      res.status(500).send(`SSE başlatılamadı: ${errorMessage}`);
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: { code: -32603, message: "İç sunucu hatası" },
+        id: null,
+      });
     }
   }
 });
 
-app.post("/messages", async (req, res) => {
-  const sessionId = typeof req.query.sessionId === "string" ? req.query.sessionId : "";
+// Sunucudan istemciye bildirimler için (GET) - SSE akışı
+app.get("/mcp", async (req, res) => {
+  const sessionId = req.headers["mcp-session-id"];
+  const entry = sessionId ? transports[sessionId] : undefined;
 
-  if (!sessionId) {
-    return res.status(400).send("sessionId eksik");
+  if (!entry) {
+    return res.status(400).send("Geçersiz veya eksik oturum ID");
   }
 
-  const transport = activeTransports.get(sessionId);
+  await entry.transport.handleRequest(req, res);
+});
 
-  if (!transport) {
-    return res.status(404).send(`Aktif transport bulunamadı. Session ID: ${sessionId}`);
+// Oturumu sonlandırmak için (DELETE)
+app.delete("/mcp", async (req, res) => {
+  const sessionId = req.headers["mcp-session-id"];
+  const entry = sessionId ? transports[sessionId] : undefined;
+
+  if (!entry) {
+    return res.status(400).send("Geçersiz veya eksik oturum ID");
   }
 
-  try {
-    await transport.handlePostMessage(req, res);
-  } catch (error) {
-    console.error("POST mesaj işleme hatası:", error);
-    if (!res.headersSent) {
-      res.status(500).send("Mesaj işlenirken hata oluştu");
-    }
-  }
+  await entry.transport.handleRequest(req, res);
 });
 
 app.get("/", (_req, res) => {

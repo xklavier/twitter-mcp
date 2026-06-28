@@ -79,8 +79,19 @@ function createMcpServer() {
   return server;
 }
 
-// sessionId -> { server, transport }
+// sessionId -> { server, transport, lastSeen }
 const transports = {};
+
+// Clean up idle sessions (e.g., after 5 minutes)
+setInterval(() => {
+  const now = Date.now();
+  Object.keys(transports).forEach(id => {
+    if (now - transports[id].lastSeen > 300000) {
+      delete transports[id];
+      console.log(`MCP oturumu zaman aşımı nedeniyle silindi: ${id}`);
+    }
+  });
+}, 60000);
 
 // Modern Streamable HTTP endpoint - Poke ve diğer güncel MCP istemcileri burayı kullanır
 app.post("/mcp", async (req, res) => {
@@ -102,23 +113,20 @@ app.post("/mcp", async (req, res) => {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
-          transports[id] = { server, transport };
+          transports[id] = { server, transport, lastSeen: Date.now() };
           console.log(`MCP oturumu başlatıldı: ${id}`);
         },
       });
 
-      res.on("close", () => {
-        if (transport.sessionId) {
-          delete transports[transport.sessionId];
-          console.log(`MCP oturumu kapandı: ${transport.sessionId}`);
-        }
-      });
+      // No longer deleting on POST connection close to allow GET stream to connect.
+      // Sessions are cleaned up by DELETE /mcp or the idle timeout.
 
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
       return;
     }
 
+    entry.lastSeen = Date.now();
     await entry.transport.handleRequest(req, res, req.body);
   } catch (error) {
     console.error("MCP POST hatası:", error);
@@ -141,6 +149,7 @@ app.get("/mcp", async (req, res) => {
     return res.status(400).send("Geçersiz veya eksik oturum ID");
   }
 
+  entry.lastSeen = Date.now();
   await entry.transport.handleRequest(req, res);
 });
 
@@ -153,7 +162,12 @@ app.delete("/mcp", async (req, res) => {
     return res.status(400).send("Geçersiz veya eksik oturum ID");
   }
 
-  await entry.transport.handleRequest(req, res);
+  try {
+    await entry.transport.handleRequest(req, res);
+  } finally {
+    delete transports[sessionId];
+    console.log(`MCP oturumu sonlandırıldı: ${sessionId}`);
+  }
 });
 
 app.get("/", (_req, res) => {

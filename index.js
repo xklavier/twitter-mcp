@@ -102,9 +102,10 @@ app.get("/sse", async (req, res) => {
 
     await server.connect(transport);
   } catch (error) {
-    console.error("SSE başlatma hatası:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("SSE başlatma hatası:", errorMessage);
     if (!res.headersSent) {
-      res.status(500).send("SSE başlatılamadı");
+      res.status(500).send(`SSE başlatılamadı: ${errorMessage}`);
     }
   }
 });

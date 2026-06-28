@@ -3,6 +3,7 @@ import cors from "cors";
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { TwitterApi } from "twitter-api-v2";
 import { z } from "zod";
@@ -157,6 +158,60 @@ app.delete("/mcp", async (req, res) => {
 
 app.get("/", (_req, res) => {
   res.send("Twitter MCP Server çalışıyor");
+});
+
+// --- Geriye dönük uyumluluk: eski SSE transport (Poke gibi bazı istemciler bunu bekliyor) ---
+const sseTransports = new Map();
+
+app.get("/sse", async (req, res) => {
+  try {
+    res.setHeader("X-Accel-Buffering", "no");
+
+    const transport = new SSEServerTransport("/messages", res);
+    const sessionId = transport.sessionId;
+    sseTransports.set(sessionId, transport);
+    console.log(`SSE bağlantısı açıldı. Session ID: ${sessionId}`);
+
+    req.on("close", () => {
+      console.log(`SSE bağlantısı kapandı: ${sessionId}`);
+      sseTransports.delete(sessionId);
+      try {
+        transport.close?.();
+      } catch (_) {}
+    });
+
+    const server = createMcpServer();
+    await server.connect(transport);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("SSE başlatma hatası:", errorMessage);
+    if (!res.headersSent) {
+      res.status(500).send(`SSE başlatılamadı: ${errorMessage}`);
+    }
+  }
+});
+
+app.post("/messages", async (req, res) => {
+  const sessionId = typeof req.query.sessionId === "string" ? req.query.sessionId : "";
+
+  if (!sessionId) {
+    return res.status(400).send("sessionId eksik");
+  }
+
+  const transport = sseTransports.get(sessionId);
+
+  if (!transport) {
+    return res.status(404).send(`Aktif transport bulunamadı. Session ID: ${sessionId}`);
+  }
+
+  try {
+    await transport.handlePostMessage(req, res);
+  } catch (error) {
+    console.error("POST mesaj işleme hatası:", error);
+    if (!res.headersSent) {
+      res.status(500).send("Mesaj işlenirken hata oluştu");
+    }
+  }
 });
 
 const PORT = process.env.PORT || 3000;

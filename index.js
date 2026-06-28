@@ -73,6 +73,9 @@ app.get("/sse", async (req, res) => {
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
 
+    // Flush headers immediately for reliable chunk emission
+    res.flushHeaders?.();
+
     const transport = new SSEServerTransport("/messages", res);
     const sessionId = transport.sessionId;
 

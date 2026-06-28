@@ -165,15 +165,30 @@ const sseTransports = new Map();
 
 app.get("/sse", async (req, res) => {
   try {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
 
     const transport = new SSEServerTransport("/messages", res);
     const sessionId = transport.sessionId;
     sseTransports.set(sessionId, transport);
     console.log(`SSE bağlantısı açıldı. Session ID: ${sessionId}`);
 
+    // Render gibi proxy'lerin bağlantıyı timeout ile kapatmasını önlemek için
+    // periyodik olarak yorum satırı (heartbeat) gönderiyoruz.
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(": ping\n\n");
+      } catch (_) {
+        clearInterval(heartbeat);
+      }
+    }, 15000);
+
     req.on("close", () => {
       console.log(`SSE bağlantısı kapandı: ${sessionId}`);
+      clearInterval(heartbeat);
       sseTransports.delete(sessionId);
       try {
         transport.close?.();

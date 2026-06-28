@@ -5,24 +5,23 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { TwitterApi } from 'twitter-api-v2';
 import z from 'zod';
 
-// Vercel'in bağlantıyı koparmasını (timeout) engelleyen modern akış ayarı:
-export const config = {
-  runtime: 'nodejs',
-  supportsResponseStreaming: true,
-};
-
 const app = express();
 
-// Tüm kaynaklardan (Poke AI) gelen isteklere izin ver
+// Render ve dış dünya bağlantıları için CORS izinleri
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
+// API Anahtarları Kontrolü (Eğer biri eksikse loglarda görebilmemiz için)
+if (!process.env.TWITTER_API_KEY || !process.env.TWITTER_ACCESS_TOKEN) {
+  console.error("KRİTİK HATA: Twitter API anahtarları çevre değişkenlerinde (Environment Variables) eksik!");
+}
+
 // X (Twitter) API Bağlantısı
 const twitterClient = new TwitterApi({
-  appKey: process.env.TWITTER_API_KEY,
-  appSecret: process.env.TWITTER_API_SECRET,
-  accessToken: process.env.TWITTER_ACCESS_TOKEN,
-  accessSecret: process.env.TWITTER_ACCESS_SECRET,
+  appKey: process.env.TWITTER_API_KEY || '',
+  appSecret: process.env.TWITTER_API_SECRET || '',
+  accessToken: process.env.TWITTER_ACCESS_TOKEN || '',
+  accessSecret: process.env.TWITTER_ACCESS_SECRET || '',
 });
 
 // Resmi MCP Sunucu Tanımı
@@ -43,12 +42,10 @@ server.tool(
     try {
       let result;
       if (replyToId) {
-        // Eğer replyToId gelirse tweete cevap yazar
         result = await twitterClient.v2.tweet(text, {
           reply: { in_reply_to_tweet_id: replyToId }
         });
       } else {
-        // Normal tweet atar
         result = await twitterClient.v2.tweet(text);
       }
       return { content: [{ type: "text", text: `Başarılı! Tweet gönderildi. ID: ${result.data.id}` }] };
@@ -60,28 +57,30 @@ server.tool(
 
 let transport = null;
 
-// 1. Poke AI'ın beklediği Canlı SSE Akış Kapısı
+// 1. Canlı SSE Akış Kapısı
 app.get('/sse', async (req, res) => {
   transport = new SSEServerTransport('/api/mcp', res);
   await server.connect(transport);
 });
 
-// 2. Poke AI'ın POST isteklerini göndereceği yol
+// 2. POST isteklerini karşılayan yol
 app.post('/api/mcp', async (req, res) => {
   if (transport) {
     await transport.handlePostMessage(req, res);
   } else {
-    res.status(500).send('SSE baglantisi henüz kurulmadi veya aktif degil.');
+    res.status(500).send('SSE baglantisi henüz kurulmadi.');
   }
 });
 
-// Anasayfa mesajı
+// Anasayfa kontrol mesajı
 app.get('/', (req, res) => {
-  res.send('Twitter MCP Server aktif. Lütfen Poke AI entegrasyonunda /sse uzantısını kullanın.');
+  res.send('Twitter MCP Server Render üzerinde 7/24 aktif!');
 });
 
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(3000, () => console.log('Yerel sunucu 3000 portunda aktif.'));
-}
+// RENDER İÇİN KRİTİK DEĞİŞİKLİK: Dinamik port tanımı
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Sunucu ${PORT} portunda başarıyla ayağa kalktı.`);
+});
 
 export default app;

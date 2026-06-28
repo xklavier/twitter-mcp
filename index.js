@@ -7,7 +7,13 @@ import { z } from "zod";
 
 const app = express();
 
-// Tüm kaynaklardan (Poke AI) gelen isteklere izin ver
+// 1. Render/Nginx Buffer Engelleme Middleware'i
+// İstek gelir gelmez en başta buffer'lamayı kapatıyoruz ki çakışma çıkmasın
+app.use((req, res, next) => {
+  res.setHeader("X-Accel-Buffering", "no");
+  next();
+});
+
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
@@ -56,29 +62,15 @@ server.tool(
 
 let transport;
 
-// Poke AI ekibinin buffer kilidini kıran yeni /sse endpoint'i
+// 2. Poke AI'ın İstediği Tertemiz /sse Handler'ı
+// Header'lara hiç dokunmuyoruz, yönetimi tamamen MCP SDK'ya bırakıyoruz
 app.get("/sse", async (req, res) => {
-  // 1. SSE header'larını anında ayarla (Render/Nginx buffer'lamayı kapatır)
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    "Connection": "keep-alive",
-    "X-Accel-Buffering": "no" 
-  });
-
-  // 2. Header'ları anında istemciye fırlat
-  if (res.flushHeaders) {
-    res.flushHeaders();
-  }
-
   console.log("Poke bağlandı. Transport başlatılıyor...");
-  
-  // 3. Transport'u bağla
   transport = new SSEServerTransport("/api/mcp", res);
   await server.connect(transport);
 });
 
-// Araçların tetikleneceği POST kapısı
+// 3. POST kapısı (Gelen mesajlardan sonra ekstra response basmıyoruz)
 app.post("/api/mcp", async (req, res) => {
   if (transport) {
     await transport.handlePostMessage(req, res);

@@ -3,10 +3,11 @@ import cors from "cors";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { TwitterApi } from "twitter-api-v2";
+import z from "zod"; // Zod kütüphanesini geri ekledik
 
 const app = express();
 
-// Güvenlik ve dış bağlantılar için CORS desteği ekleyelim
+// Güvenlik ve dış bağlantılar için CORS desteği
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
@@ -23,24 +24,22 @@ const server = new McpServer({
   version: "1.0.0",
 });
 
-// Poke AI ekibinin şablonuna göre güncellenmiş Twitter Tool yapısı
+// MCP SDK standartlarına (Zod şemasına) tam uyumlu araç tanımı
 server.tool(
   "post_tweet",
   "Post a new tweet or reply to X (Twitter)",
   {
-    text: { type: "string", description: "The tweet text" },
-    replyToId: { type: "string", description: "Optional ID of tweet to reply to" }
+    text: z.string().describe("The tweet text"),
+    replyToId: z.string().optional().describe("Optional ID of tweet to reply to")
   },
   async ({ text, replyToId }) => {
     try {
       let result;
       if (replyToId) {
-        // Eğer bir tweete yanıt veriliyorsa
         result = await twitterClient.v2.tweet(text, {
           reply: { in_reply_to_tweet_id: replyToId }
         });
       } else {
-        // Normal yeni tweet
         result = await twitterClient.v2.tweet(text);
       }
       return {
@@ -57,13 +56,13 @@ server.tool(
 
 let transport;
 
-// Poke AI'ın tam olarak beklediği /sse endpoint'i
+// Poke AI'ın bağlanacağı /sse kapısı
 app.get("/sse", async (req, res) => {
   transport = new SSEServerTransport("/api/mcp", res);
   await server.connect(transport);
 });
 
-// Araçların (tools) tetiklendiği POST kapısı
+// Araçların tetiklendiği POST kapısı
 app.post("/api/mcp", async (req, res) => {
   if (transport) {
     await transport.handlePostMessage(req, res);
@@ -72,7 +71,7 @@ app.post("/api/mcp", async (req, res) => {
   }
 });
 
-// Anasayfayı boş bırakmayalım, sunucunun ayakta olduğunu bilelim
+// Anasayfa kontrol mesajı
 app.get("/", (req, res) => {
   res.send("Twitter MCP Server Render üzerinde canavar gibi çalışıyor!");
 });

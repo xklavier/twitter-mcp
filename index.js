@@ -53,42 +53,55 @@ server.tool(
   }
 );
 
-// Poke'un istediği Hafıza Havuzu (Map)
+// Poke'un istediği Çoklu Bağlantı Hafıza Havuzu (Map)
 const activeTransports = new Map();
 
-// GET /sse - Akışı başlatan kapı
+// GET /sse - Akışı başlatan ana kapı
 app.get("/sse", async (req, res) => {
-  // 1. Buffer engelleme header'ları
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    "Connection": "keep-alive",
-    "X-Accel-Buffering": "no"
-  });
+  console.log("Poke'dan yeni bir SSE bağlantı isteği geldi.");
+
+  // 1. Render/Nginx buffer katmanını kırmak için header'ı Express seviyesinde ayarlıyoruz
+  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  // 2. SDK'nın yazma (write) metodunu takibe alıyoruz (Hooking)
+  // SDK res.write yaptığında Render/Nginx araya sıkışmasın diye veriyi anında dışarı fırlatıyoruz (flush)
+  const originalWrite = res.write;
+  res.write = function (...args) {
+    const result = originalWrite.apply(this, args);
+    if (res.flushHeaders) res.flushHeaders();
+    if (res.flush) res.flush();
+    return result;
+  };
+
+  // 3. İstemcinin query ile gönderdiği veya bizim ürettiğimiz sessionId
+  const sId = req.query.sessionId || `session-${Date.now()}`;
   
-  res.flushHeaders();
-
-  // 2. Çökmeyi engelleyen Benzersiz SessionID Tanımı
-  // Poke ekibinin query'den göndereceği sessionId ile eşleşecek benzersiz ID'yi oluşturuyoruz
-  const sId = req.query.sessionId || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  console.log(`Bağlantı isteği geldi. Atanan Session ID: ${sId}`);
-
+  // 4. Transport oluşturuluyor (Yol eşitlemesi yapıldı)
   const transport = new SSEServerTransport("/messages", res);
   
-  // Havuza güvenli bir şekilde kaydediyoruz
+  // Havuza kayıt
   activeTransports.set(sId, transport);
-  
+  console.log(`Bağlantı havuzlandı. Session ID: ${sId}`);
+
+  // 5. Sunucuya bağlıyoruz. Await burayı kilitlemesin diye catch bloğuyla koruyoruz
   try {
     await server.connect(transport);
+    
+    // Bağlantı başarılı kurulduğu an ilk veriyi ittirmek için flush tetikliyoruz
+    if (res.flushHeaders) res.flushHeaders();
+    if (res.flush) res.flush();
   } catch (err) {
-    console.error("MCP Bağlantı Hatası:", err);
+    console.error("MCP server.connect hatası:", err);
     activeTransports.delete(sId);
     return;
   }
 
-  // Bağlantı koptuğunda sadece bu spesifik session'ı temizle
+  // Bağlantı koptuğunda temizlik rutinleri
   req.on("close", () => {
-    console.log(`Bağlantı kapandı, hafıza temizleniyor: ${sId}`);
+    console.log(`Bağlantı kapandı, havuzdan siliniyor: ${sId}`);
     try {
       transport.close();
     } catch (e) {}
@@ -96,11 +109,11 @@ app.get("/sse", async (req, res) => {
   });
 });
 
-// POST /messages - Komutları alan ve havuzdan eşleştiren kapı
+// POST /messages - Gelen komutları doğru session'a uçuran kapı
 app.post("/messages", async (req, res) => {
   const { sessionId } = req.query;
   
-  // Eğer istemci spesifik bir sessionId göndermediyse havuzdaki ilk aktif transportu yedek olarak seç
+  // Belirli bir sessionId gelmişse onu seç, yoksa havuzdaki ilk aktif hattı kurtarıcı olarak kullan
   let transport = activeTransports.get(sessionId);
   if (!transport && activeTransports.size > 0) {
     transport = activeTransports.values().next().value;
@@ -110,11 +123,11 @@ app.post("/messages", async (req, res) => {
     try {
       await transport.handlePostMessage(req, res);
     } catch (err) {
-      console.error("Mesaj işleme hatası:", err);
-      res.status(500).send("Mesaj işlenemedi.");
+      console.error("POST mesaj işleme hatası:", err);
+      res.status(500).send("Mesaj işlenirken hata oluştu.");
     }
   } else {
-    res.status(400).send(`Aktif SSE baglantisi bulunamadi kanka. Gelen SessionId: ${sessionId || 'Yok'}`);
+    res.status(400).send(`Aktif SSE bağlantısı bulunamadı. Gelen SessionId: ${sessionId || 'Yok'}`);
   }
 });
 

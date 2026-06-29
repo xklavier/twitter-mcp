@@ -144,6 +144,15 @@ Render provides free and paid hosting for Node.js applications with automatic de
 - **Redeploy**: Push new commits to GitHub; Render will automatically rebuild and redeploy
 - **Scaling**: Upgrade your plan if you need more performance or persistent uptime
 
+## Alternative Deployment: Vercel
+
+If you prefer Vercel, you can use the included `vercel.json` configuration.
+
+### Steps
+1. **Connect Repository**: Import the project into your Vercel dashboard.
+2. **Environment Variables**: Add `TWITTER_API_KEY`, `TWITTER_API_SECRET`, `TWITTER_ACCESS_TOKEN`, and `TWITTER_ACCESS_SECRET` in the project settings.
+3. **Deploy**: Vercel will detect the configuration and deploy the server as a Serverless Function.
+
 ## Architecture
 
 ### File Structure

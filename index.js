@@ -26,6 +26,23 @@ const twitterClient = new TwitterApi({
   accessSecret: process.env.TWITTER_ACCESS_SECRET || "",
 });
 
+const XQUIK_API_BASE_URL = process.env.XQUIK_API_BASE_URL || "https://xquik.com";
+
+function createXquikSearchUrl({ q, queryType, limit }) {
+  const url = new URL("/api/v1/x/tweets/search", XQUIK_API_BASE_URL);
+  url.searchParams.set("q", q);
+
+  if (queryType) {
+    url.searchParams.set("queryType", queryType);
+  }
+
+  if (limit) {
+    url.searchParams.set("limit", String(limit));
+  }
+
+  return url;
+}
+
 /**
  * Creates and configures a fresh McpServer instance with all tools registered.
  */
@@ -68,6 +85,74 @@ function createMcpServer() {
             {
               type: "text",
               text: `Twitter API hatası: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "search_xquik_tweets",
+    "Search public X posts through Xquik when XQUIK_API_KEY is configured",
+    {
+      q: z.string().min(1).describe("Search query, Tweet ID, X status URL, or account date window"),
+      queryType: z.enum(["Latest", "Top"]).optional().describe("Search ranking mode"),
+      limit: z.number().int().min(1).max(50).optional().describe("Maximum posts to return"),
+    },
+    async ({ q, queryType, limit }) => {
+      const apiKey = process.env.XQUIK_API_KEY || "";
+
+      if (!apiKey) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "XQUIK_API_KEY is required to use search_xquik_tweets.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      try {
+        const response = await fetch(createXquikSearchUrl({ q, queryType, limit }), {
+          headers: {
+            Accept: "application/json",
+            "x-api-key": apiKey,
+          },
+        });
+        const responseText = await response.text();
+
+        if (!response.ok) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Xquik search failed (${response.status}): ${responseText.slice(0, 1000)}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const parsed = JSON.parse(responseText);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(parsed, null, 2),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Xquik search error: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
           isError: true,

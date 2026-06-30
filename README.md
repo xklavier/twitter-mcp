@@ -54,6 +54,28 @@ Returns the newly created tweet's ID on success, or an error message on failure.
 }
 ```
 
+#### search_xquik_tweets
+
+Search public X posts through Xquik. This tool is opt-in and only works when
+`XQUIK_API_KEY` is configured.
+
+**Parameters:**
+- `q` (string, required): Search query, Tweet ID, X status URL, or account date window
+- `queryType` (string, optional): `Latest` or `Top`
+- `limit` (number, optional): Maximum posts to return, from 1 to 50
+
+**Response:**
+Returns the Xquik JSON response on success, or an error message on failure.
+
+**Example:**
+```json
+{
+  "q": "from:vercel nextjs",
+  "queryType": "Latest",
+  "limit": 10
+}
+```
+
 ## Environment Variables
 
 Configure the server using the following environment variables:
@@ -62,6 +84,8 @@ Configure the server using the following environment variables:
 - `TWITTER_API_SECRET`: Your Twitter API v2 API Secret (Consumer Secret)
 - `TWITTER_ACCESS_TOKEN`: Your OAuth 1.0a Access Token
 - `TWITTER_ACCESS_SECRET`: Your OAuth 1.0a Access Secret
+- `XQUIK_API_KEY`: Optional Xquik API key for `search_xquik_tweets`
+- `XQUIK_API_BASE_URL`: Optional Xquik API base URL (default: `https://xquik.com`)
 - `PORT`: The port the server listens on (default: 3000)
 
 Obtain these credentials from the [Twitter Developer Portal](https://developer.twitter.com/en/portal).
@@ -92,6 +116,7 @@ Obtain these credentials from the [Twitter Developer Portal](https://developer.t
    export TWITTER_API_SECRET=your_api_secret
    export TWITTER_ACCESS_TOKEN=your_access_token
    export TWITTER_ACCESS_SECRET=your_access_secret
+   export XQUIK_API_KEY=your_xquik_api_key
    ```
 
 4. Start the server:

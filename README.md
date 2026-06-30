@@ -77,7 +77,7 @@ Obtain these credentials from the [Twitter Developer Portal](https://developer.t
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/xklavier/twitter-mcp.git
+   git clone https://github.com/brsbrkctn/twitter-mcp.git
    cd twitter-mcp
    ```
 
@@ -115,7 +115,7 @@ Render provides free and paid hosting for Node.js applications with automatic de
    - Go to your Render dashboard
    - Click "New +" and select "Web Service"
    - Connect your GitHub account
-   - Select the `xklavier/twitter-mcp` repository
+   - Select the `brsbrkctn/twitter-mcp` repository
 
 4. **Configure the Service**:
    - **Name**: Choose a service name (e.g., `twitter-mcp`)
